@@ -1,13 +1,18 @@
+#define _CRT_SECURE_NO_WARNINGS
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
 
 #include "pixie-threads.h"
+#include "pixie-timer.h"
+#include "main-throttle.h"
 
 #if defined(WIN32)
 #include <WinSock2.h>
 #include <WS2tcpip.h>
+#define snprintf _snprintf
 #define WSA(err) WSA##err
 #if defined(_MSC_VER)
 #pragma comment(lib, "ws2_32.lib")
@@ -30,16 +35,48 @@ struct Configuration
     const char *target;
     unsigned port;
     unsigned thread_count;
-    
+    double rate;    
 };
 
 struct ThreadData
 {
-    const char *target;
+    //const char *target;
     size_t total_packets;
     int fd;
     struct addrinfo *ai;
+    double rate;
 };
+
+/******************************************************************************
+ ******************************************************************************/
+static const char *
+my_inet_ntop(struct sockaddr *sa, char *dst, size_t sizeof_dst)
+{
+#if defined(WIN32)
+    /* WinXP doesn't have 'inet_ntop()', but it does have another WinSock
+     * function that takes care of this for us */
+    {
+        DWORD len = (DWORD)sizeof_dst;
+        WSAAddressToStringA(sa, sizeof(struct sockaddr_in6), NULL,
+                            dst, &len);
+    }
+#else
+    switch (sa->sa_family) {
+    case AF_INET:
+        inet_ntop(AF_INET, &(((struct sockaddr_in *)sa)->sin_addr),
+                dst, sizeof_dst);
+        break;
+    case AF_INET6:
+        inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)sa)->sin6_addr),
+                dst, sizeof_dst);
+        break;
+    default:
+        dst[0] = '\0';
+    }
+#endif
+    return dst;
+}
+
 
 /******************************************************************************
  ******************************************************************************/
@@ -50,16 +87,62 @@ client_thread(void *v)
     struct addrinfo *target = t->ai;
     int fd;
     static const char test[] = "this is a test";
-    
-    fd = socket(target->ai_family, target->ai_socktype, target->ai_protocol);
+    size_t i;
+    WSABUF bufs[16];
+    struct Throttler throttler[1];
+
+    memset(throttler, 0, sizeof(throttler[0]));
+    throttler_start(throttler, t->rate);
+
+    fd = socket(target->ai_family, SOCK_DGRAM, IPPROTO_UDP);
     if (fd <= 0) {
         fprintf(stderr, "FAIL: couldn't create socket %u\n", WSAGetLastError());
         exit(1);
     }
+
+    if (target->ai_family == AF_INET) {
+        struct sockaddr_in sin;
+        int x;
+        memset(&sin, 0, sizeof(sin));
+        sin.sin_family = AF_INET;
+        x = bind(fd, (struct sockaddr*)&sin, sizeof(sin));
+        if (x)
+            printf("bind: %u\n", WSAGetLastError());
+    }
     
+    for (i=0; i<16; i++) {
+        bufs[i].buf = (char*)test;
+        bufs[i].len = strlen(test);
+    }
+
     for (;;) {
-        sendto(fd, test, sizeof(test), 0, target->ai_addr, target->ai_addrlen);
-        t->total_packets++;
+        uint64_t count;
+        uint64_t i;
+
+        count =  throttler_next_batch(throttler, t->total_packets);
+
+        for (i=0; i<count; i++) {
+            int x;
+            DWORD bytes_sent = 0;
+
+            x = sendto(fd, test, sizeof(test), 0, target->ai_addr, target->ai_addrlen);
+            if (x == -1) {
+                char hostname[256];
+                int err = WSAGetLastError();
+
+    #ifdef WIN32
+                /* Once we hit the max rate for sending packets, Windows starts
+                 * returning this as error codes */
+                if (err == WSAEINVAL)
+                    continue;
+    #endif
+                my_inet_ntop(target->ai_addr, hostname, sizeof(hostname));
+                printf("%s:%u\n", hostname, err);
+                //select(1, 0, writefs, 0, 0);
+            } else
+                t->total_packets++;
+        }
+
     }
 }
 
@@ -184,7 +267,7 @@ void
 bench_server(struct Configuration *cfg)
 {
     int fd;
-    int i;
+    unsigned i;
     struct ThreadData threaddata[64];
     
     memset(&threaddata, 0, sizeof(threaddata));
@@ -210,8 +293,9 @@ bench_server(struct Configuration *cfg)
         for (;;) {
             unsigned i;
             uint64_t current_count = 0;
-            sleep(1);
-            
+
+            pixie_mssleep(1000);
+
             for (i=0; i<cfg->thread_count; i++) {
                 current_count += threaddata[i].total_packets;
             }
@@ -228,7 +312,7 @@ bench_server(struct Configuration *cfg)
 void
 bench_client(struct Configuration *cfg)
 {
-    int i;
+    unsigned i;
     struct ThreadData threaddata[64];
     int x;
     char szport[16];
@@ -258,11 +342,14 @@ bench_client(struct Configuration *cfg)
     {
         char hostname[256];
         const char *result;
-        struct sockaddr_in *sin = targets->ai_addr;
+        struct sockaddr_in *sin = (struct sockaddr_in*)targets->ai_addr;
+        const char *type = "(unknown)";
         
-        result = inet_ntop(targets->ai_family, targets->ai_addr, hostname, sizeof(hostname));
+        
+        result = my_inet_ntop(targets->ai_addr, hostname, sizeof(hostname));
         
         printf("target: %s\n", result);
+
         
     }
     
@@ -272,6 +359,7 @@ bench_client(struct Configuration *cfg)
     for (i=0; i<cfg->thread_count; i++) {
         struct ThreadData *t = &threaddata[i];
         t->ai = targets;        
+        t->rate = cfg->rate/(1.0 * cfg->thread_count);
         pixie_begin_thread(client_thread, 0, t);
     }
     
@@ -280,8 +368,9 @@ bench_client(struct Configuration *cfg)
         for (;;) {
             unsigned i;
             uint64_t current_count = 0;
-            sleep(1);
-            
+
+            pixie_mssleep(1000);
+
             for (i=0; i<cfg->thread_count; i++) {
                 current_count += threaddata[i].total_packets;
             }
@@ -312,6 +401,7 @@ int main(int argc, char *argv[])
     
     cfg->port = 12345;
     cfg->thread_count = pixie_cpu_get_count();
+    cfg->rate = 100.0;
 
 
     if (argc <= 1) {
@@ -330,7 +420,7 @@ int main(int argc, char *argv[])
                     else if (i+1>argc)
                         fprintf(stderr, "expected number after '%s'\n", argv[i]);
                     else
-                        cfg->thread_count = strtoul(argv[i++],0,0);
+                        cfg->thread_count = strtoul(argv[++i],0,0);
                     break;
                 case 'p':
                     if (argv[i][2])
@@ -338,11 +428,18 @@ int main(int argc, char *argv[])
                     else if (i+1>argc)
                         fprintf(stderr, "expected number after '%s'\n", argv[i]);
                     else
-                        cfg->port = strtoul(argv[i++],0,0);
+                        cfg->port = strtoul(argv[++i],0,0);
+                    break;
+                case 'r':
+                    if (argv[i][2])
+                        cfg->rate = strtoul(argv[i]+2,0,0);
+                    else if (i+1>argc)
+                        fprintf(stderr, "expected number after '%s'\n", argv[i]);
+                    else
+                        cfg->rate = strtoul(argv[++i],0,0);
                     break;
             }
         } else {
-            printf("asdf\n");
             cfg->target = argv[i];
         }
     }
