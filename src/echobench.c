@@ -88,7 +88,6 @@ client_thread(void *v)
     int fd;
     static const char test[] = "this is a test";
     size_t i;
-    WSABUF bufs[16];
     struct Throttler throttler[1];
 
     memset(throttler, 0, sizeof(throttler[0]));
@@ -110,11 +109,6 @@ client_thread(void *v)
             printf("bind: %u\n", WSAGetLastError());
     }
     
-    for (i=0; i<16; i++) {
-        bufs[i].buf = (char*)test;
-        bufs[i].len = strlen(test);
-    }
-
     for (;;) {
         uint64_t count;
         uint64_t i;
@@ -123,7 +117,6 @@ client_thread(void *v)
 
         for (i=0; i<count; i++) {
             int x;
-            DWORD bytes_sent = 0;
 
             x = sendto(fd, test, sizeof(test), 0, target->ai_addr, target->ai_addrlen);
             if (x == -1) {
