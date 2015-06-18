@@ -87,7 +87,6 @@ client_thread(void *v)
     struct addrinfo *target = t->ai;
     int fd;
     static const char test[] = "this is a test";
-    size_t i;
     struct Throttler throttler[1];
 
     memset(throttler, 0, sizeof(throttler[0]));
@@ -250,7 +249,7 @@ server_thread(void *v)
         
         thread->total_packets++;
 
-        sendto(fd, buf, bytes_received, 0, (struct sockaddr*)&sin, sizeof_sin);
+        //sendto(fd, buf, bytes_received, 0, (struct sockaddr*)&sin, sizeof_sin);
     }
 }
 
@@ -282,10 +281,10 @@ bench_server(struct Configuration *cfg)
     }
     
     {
-        uint64_t last_count = 0;
+        unsigned long long last_count = 0;
         for (;;) {
             unsigned i;
-            uint64_t current_count = 0;
+            unsigned long long current_count = 0;
 
             pixie_mssleep(1000);
 
