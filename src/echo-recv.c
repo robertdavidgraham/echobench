@@ -194,7 +194,8 @@ server_thread_mmsg(void *v)
 	char bufs[VLEN][BUFSIZE+1];
     struct timespec timeout;
 
-    fprintf(stderr, "--- m-msg ---\n");
+    timeout.tv_sec = 1;
+    timeout.tv_nsec = 0;
 
     /*
      * Init multi-message uffers
@@ -212,14 +213,16 @@ server_thread_mmsg(void *v)
      */
     for (;;) {
         struct sockaddr_in6 sin;
-        int msgs_received;
+        int msgs_received = 0;
         socklen_t sizeof_sin = sizeof(sin);
         
+#ifdef  MSG_WAITFORONE
         msgs_received = recvmmsg(  fd,
                                     msgs,
                                     VLEN,
-                                    0,
+                                    MSG_WAITFORONE,
                                     &timeout);
+#endif
         if (msgs_received <= 0)
             continue;
         
