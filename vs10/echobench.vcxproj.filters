@@ -27,6 +27,9 @@
     <ClCompile Include="..\src\main-throttle.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\echo-recv.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\pixie-threads.h">
@@ -36,6 +39,9 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="..\src\main-throttle.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\echobench.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>

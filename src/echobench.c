@@ -1,5 +1,5 @@
 #define _CRT_SECURE_NO_WARNINGS
-
+#include "echobench.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -30,22 +30,6 @@ typedef int socklen_t;
 #define WSA(err) (err)
 #endif
 
-struct Configuration
-{
-    const char *target;
-    unsigned port;
-    unsigned thread_count;
-    double rate;    
-};
-
-struct ThreadData
-{
-    //const char *target;
-    size_t total_packets;
-    int fd;
-    struct addrinfo *ai;
-    double rate;
-};
 
 /******************************************************************************
  ******************************************************************************/
@@ -122,12 +106,12 @@ client_thread(void *v)
                 char hostname[256];
                 int err = WSAGetLastError();
 
-    #ifdef WIN32
+#ifdef WIN32
                 /* Once we hit the max rate for sending packets, Windows starts
                  * returning this as error codes */
                 if (err == WSAEINVAL)
                     continue;
-    #endif
+#endif
                 my_inet_ntop(target->ai_addr, hostname, sizeof(hostname));
                 printf("%s:%u\n", hostname, err);
                 //select(1, 0, writefs, 0, 0);
@@ -138,166 +122,6 @@ client_thread(void *v)
     }
 }
 
-/******************************************************************************
- ******************************************************************************/
-int
-create_server_socket(unsigned port)
-{
-    int err;
-    SOCKET fd;
-    struct sockaddr_in6 sin;
-    
-    
-    /*
-     * Create a socket for incoming UDP packets. By specifying IPv6, we are
-     * actually going to allow both IPv4 and IPv6.
-     */
-    fd = socket(AF_INET6, SOCK_DGRAM, 0);
-    if (fd <= 0) {
-        fprintf(stderr, "FAIL: couldn't create socket %u\n", WSAGetLastError());
-        exit(1);
-    }
-    
-
-    /*
-     * Set the 'reuse' feature of the socket, otherwise restarting the process
-     * requires a wait before binding back to the same port number
-     */
-#ifdef SO_REUSEADDR
-    {
-        int on = 1;
-        err = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *)&on,sizeof(on));
-        if (err < 0) {
-            perror("setsockopt(SO_REUSEADDR) failed");
-            exit(1); 
-        }
-    }
-#endif
-    
-    /*
-     * Enable both IPv4 and IPv6 to be used on the same sockets. This appears to
-     * be needed for Windows, but not needed for Mac OS X.
-     */
-#ifdef IPV6_V6ONLY
-    {
-        int on = 0;
-        err = setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&on, sizeof(on)); 
-        if (err < 0) {
-            perror("setsockopt(IPV6_V6ONLY) failed");
-            exit(1); 
-        }
-    }
-#endif
-    
-    
-    /*
-     * Listen on any IPv4 or IPv6 address in the system
-     */
-    memset(&sin, 0, sizeof(sin));
-    sin.sin6_family = AF_INET6;
-    sin.sin6_addr = in6addr_any;
-    sin.sin6_port = htons(port);
-    err = bind(fd, (struct sockaddr*)&sin, sizeof(sin));
-    if (err) {
-        switch (WSAGetLastError()) {
-            case WSA(EACCES):
-                fprintf(stderr, "FAIL: couldn't bind to port %u: %s\n", port, 
-                    "access denied");
-                if (port <= 1024)
-                    fprintf(stderr, "  hint... need to be root for ports below 1024\n");
-                break;
-            case WSA(EADDRINUSE):
-                fprintf(stderr, "FAIL: couldn't bind to port %u: %s\n", port, 
-                    "address in use");
-                fprintf(stderr, "  hint... some other server is running on that port\n");
-                break;
-            default:
-                fprintf(stderr, "FAIL: couldn't bind to port %u: %u\n", port,
-                    WSAGetLastError());
-        }
-        exit(1);
-    } else {
-        fprintf(stderr, "UDP port: %u\n", port);
-    }
-    
-    return fd;
-}
-
-/******************************************************************************
- ******************************************************************************/
-void
-server_thread(void *v)
-{
-    struct ThreadData *thread = (struct ThreadData *)v;
-    int fd = thread->fd;
-    
-    /*
-     * Sit in loop processing incoming UDP packets
-     */
-    for (;;) {
-        struct sockaddr_in6 sin;
-        char buf[2048];
-        int bytes_received;
-        socklen_t sizeof_sin = sizeof(sin);
-        
-        bytes_received = recvfrom(fd, 
-                                  buf, sizeof(buf),
-                                  0, 
-                                  (struct sockaddr*)&sin, &sizeof_sin);
-        if (bytes_received == 0)
-            continue;
-        
-        thread->total_packets++;
-
-        //sendto(fd, buf, bytes_received, 0, (struct sockaddr*)&sin, sizeof_sin);
-    }
-}
-
-/******************************************************************************
- ******************************************************************************/
-void
-bench_server(struct Configuration *cfg)
-{
-    int fd;
-    unsigned i;
-    struct ThreadData threaddata[64];
-    
-    memset(&threaddata, 0, sizeof(threaddata));
-
-    fprintf(stderr, "creating server socket on port %u\n", cfg->port);
-    fd = create_server_socket(cfg->port);
-    if (fd <= 0)
-        return;
-
-    /*
-     * Create all threads
-     */
-    for (i=0; i<cfg->thread_count; i++) {
-        struct ThreadData *t = &threaddata[i];
-        
-        t->fd = fd;
-        
-        pixie_begin_thread(server_thread, 0, t);
-    }
-    
-    {
-        unsigned long long last_count = 0;
-        for (;;) {
-            unsigned i;
-            unsigned long long current_count = 0;
-
-            pixie_mssleep(1000);
-
-            for (i=0; i<cfg->thread_count; i++) {
-                current_count += threaddata[i].total_packets;
-            }
-            
-            printf("%llu pps\n", current_count - last_count);
-            last_count = current_count;
-        }
-    }
-
-}
 
 /******************************************************************************
  ******************************************************************************/
@@ -374,6 +198,7 @@ bench_client(struct Configuration *cfg)
     
 }
 
+extern void bench_server(struct Configuration *cfg);
 
 /******************************************************************************
  ******************************************************************************/
@@ -440,6 +265,9 @@ int main(int argc, char *argv[])
     
     
     if (strcmp(argv[1], "server") == 0) {
+        bench_server(cfg);
+    } else if (strcmp(argv[1], "mserver") == 0) {
+        cfg->is_mmsg = 1;
         bench_server(cfg);
     } else if (strcmp(argv[1], "client") == 0) {
         if (cfg->target == NULL) {

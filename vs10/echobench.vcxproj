@@ -11,12 +11,14 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\src\echo-recv.c" />
     <ClCompile Include="..\src\echobench.c" />
     <ClCompile Include="..\src\main-throttle.c" />
     <ClCompile Include="..\src\pixie-threads.c" />
     <ClCompile Include="..\src\pixie-timer.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\src\echobench.h" />
     <ClInclude Include="..\src\main-throttle.h" />
     <ClInclude Include="..\src\pixie-threads.h" />
     <ClInclude Include="..\src\pixie-timer.h" />
