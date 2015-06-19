@@ -180,10 +180,10 @@ bench_client(struct Configuration *cfg)
     }
     
     {
-        uint64_t last_count = 0;
+        unsigned long long last_count = 0;
         for (;;) {
             unsigned i;
-            uint64_t current_count = 0;
+            unsigned long long current_count = 0;
 
             pixie_mssleep(1000);
 
