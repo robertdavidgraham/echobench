@@ -180,19 +180,43 @@ bench_client(struct Configuration *cfg)
     }
     
     {
-        unsigned long long last_count = 0;
+        uint64_t last_count = 0;
+        uint64_t last_time = pixie_nanotime();
+        double last_rates[8] = {0};
+        unsigned index = 0;
+
         for (;;) {
             unsigned i;
-            unsigned long long current_count = 0;
+            uint64_t current_count = 0;
+            uint64_t current_time;
+            double current_rate;
+            double rate;            
 
             pixie_mssleep(1000);
 
             for (i=0; i<cfg->thread_count; i++) {
                 current_count += threaddata[i].total_packets;
             }
+
+            current_time = pixie_nanotime();
+            if (current_time == last_time)
+                continue;
+
+
+            current_rate = 1000000000.0*(current_count - last_count)/(current_time - last_time);
+            last_rates[index] = current_rate;
+            index = (index + 1) % 8;
+
+            rate = 0;
+            for (i=0; i<8; i++) {
+                rate += last_rates[i];
+            }
+            rate /= 8;
             
-            printf("%llu pps\n", current_count - last_count);
+            printf("%10.1f pps\n", rate);
+            
             last_count = current_count;
+            last_time = current_time;
         }
     }
     
@@ -255,6 +279,14 @@ int main(int argc, char *argv[])
                     else
                         cfg->rate = strtoul(argv[++i],0,0);
                     break;
+                case 'R':
+                    cfg->is_reuseport = 1;
+                    break;
+                case 'M':
+                    cfg->is_mmsg = 1;
+                    break;
+                default:
+                    fprintf(stderr, "unknown option: '%s'\n", argv[i]);
             }
         } else {
             cfg->target = argv[i];
@@ -265,9 +297,6 @@ int main(int argc, char *argv[])
     
     
     if (strcmp(argv[1], "server") == 0) {
-        bench_server(cfg);
-    } else if (strcmp(argv[1], "mserver") == 0) {
-        cfg->is_mmsg = 1;
         bench_server(cfg);
     } else if (strcmp(argv[1], "client") == 0) {
         if (cfg->target == NULL) {

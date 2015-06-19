@@ -30,8 +30,8 @@ typedef int socklen_t;
 
 /******************************************************************************
  ******************************************************************************/
-int
-create_server_socket(unsigned port)
+SOCKET
+create_server_socket(unsigned port, unsigned is_reuseport)
 {
     int err;
     SOCKET fd;
@@ -64,6 +64,17 @@ create_server_socket(unsigned port)
     }
 #endif
     
+#ifdef SO_REUSEPORT
+    if (is_reuseport) {
+        int on = 1;
+        err = setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (char *)&on,sizeof(on));
+        if (err < 0) {
+            perror("setsockopt(SO_REUSEPORT) failed");
+            exit(1); 
+        }
+    }
+#endif
+    
     /*
      * Enable both IPv4 and IPv6 to be used on the same sockets. This appears to
      * be needed for Windows, but not needed for Mac OS X.
@@ -79,7 +90,9 @@ create_server_socket(unsigned port)
     }
 #endif
     
-    
+
+
+
     /*
      * Listen on any IPv4 or IPv6 address in the system
      */
@@ -119,7 +132,7 @@ void
 server_thread(void *v)
 {
     struct ThreadData *thread = (struct ThreadData *)v;
-    int fd = thread->fd;
+    SOCKET fd = thread->fd;
     
     /*
      * Sit in loop processing incoming UDP packets
@@ -148,7 +161,11 @@ server_thread(void *v)
 #define VLEN 256
 #define BUFSIZE 2048
 
-#ifdef WIN32
+/******************************************************************************
+ * Include these instructions here for documentation purposes AND so that we
+ * can debug this code-path on systems that don't support this feature
+ ******************************************************************************/
+#ifndef  MSG_WAITFORONE
 struct msghdr
 {
     void         *msg_name;         // optional address
@@ -186,7 +203,7 @@ void
 server_thread_mmsg(void *v)
 {
     struct ThreadData *thread = (struct ThreadData *)v;
-    int fd = thread->fd;
+    SOCKET fd = thread->fd;
     size_t i;
 
     struct mmsghdr msgs[VLEN];
@@ -241,14 +258,15 @@ server_thread_mmsg(void *v)
 void
 bench_server(struct Configuration *cfg)
 {
-    int fd;
+    SOCKET fd;
     unsigned i;
     struct ThreadData threaddata[64];
     
     memset(&threaddata, 0, sizeof(threaddata));
 
+
     fprintf(stderr, "creating server socket on port %u\n", cfg->port);
-    fd = create_server_socket(cfg->port);
+    fd = create_server_socket(cfg->port, cfg->is_reuseport);
     if (fd <= 0)
         return;
 
@@ -261,26 +279,56 @@ bench_server(struct Configuration *cfg)
         t->fd = fd;
         t->port = cfg->port;
         
+        if (cfg->is_reuseport && i+1 < cfg->thread_count) {
+            fd = create_server_socket(cfg->port, cfg->is_reuseport);
+            if (fd <= 0)
+                return;
+        }
+
         if (cfg->is_mmsg)
             pixie_begin_thread(server_thread_mmsg, 0, t);
         else
             pixie_begin_thread(server_thread, 0, t);
     }
-    
+
     {
-        unsigned long long last_count = 0;
+        uint64_t last_count = 0;
+        uint64_t last_time = pixie_nanotime();
+        double last_rates[8] = {0};
+        unsigned index = 0;
+
         for (;;) {
             unsigned i;
-            unsigned long long current_count = 0;
+            uint64_t current_count = 0;
+            uint64_t current_time;
+            double current_rate;
+            double rate;            
 
             pixie_mssleep(1000);
 
             for (i=0; i<cfg->thread_count; i++) {
                 current_count += threaddata[i].total_packets;
             }
+
+            current_time = pixie_nanotime();
+            if (current_time == last_time)
+                continue;
+
+
+            current_rate = 1000000000.0*(current_count - last_count)/(current_time - last_time);
+            last_rates[index] = current_rate;
+            index = (index + 1) % 8;
+
+            rate = 0;
+            for (i=0; i<8; i++) {
+                rate += last_rates[i];
+            }
+            rate /= 8;
             
-            printf("%llu pps\n", current_count - last_count);
+            printf("%10.1f pps\n", rate);
+            
             last_count = current_count;
+            last_time = current_time;
         }
     }
 
