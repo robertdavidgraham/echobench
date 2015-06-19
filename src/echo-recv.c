@@ -296,6 +296,7 @@ bench_server(struct Configuration *cfg)
         uint64_t last_time = pixie_nanotime();
         double last_rates[8] = {0};
         unsigned index = 0;
+        int has_started = 0;
 
         for (;;) {
             unsigned i;
@@ -318,6 +319,12 @@ bench_server(struct Configuration *cfg)
             current_rate = 1000000000.0*(current_count - last_count)/(current_time - last_time);
             last_rates[index] = current_rate;
             index = (index + 1) % 8;
+
+            if (!has_started) {
+                for (i=0; i<8; i++)
+                    last_rates[i] = current_rate;
+                has_started = 1;
+            }
 
             rate = 0;
             for (i=0; i<8; i++) {
