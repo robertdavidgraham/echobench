@@ -303,9 +303,9 @@ int main(int argc, char *argv[])
         cfg->thread_count = 64;
     
     
-    if (strcmp(argv[1], "server") == 0) {
+    if (strcmp(argv[1], "server") == 0 || memcmp(argv[1], "receiv", 5) == 0) {
         bench_server(cfg);
-    } else if (strcmp(argv[1], "client") == 0) {
+    } else if (strcmp(argv[1], "client") == 0 || memcmp(argv[1], "transm", 6) == 0) {
         if (cfg->target == NULL) {
             fprintf(stderr, "must specify target ip\n");
             return -1;

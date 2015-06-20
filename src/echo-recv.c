@@ -165,7 +165,12 @@ server_thread(void *v)
  * Include these instructions here for documentation purposes AND so that we
  * can debug this code-path on systems that don't support this feature
  ******************************************************************************/
-#ifndef  MSG_WAITFORONE
+#ifdef WIN32
+struct timespec
+{
+    unsigned tv_sec;
+    unsigned tv_nsec;
+};
 struct msghdr
 {
     void         *msg_name;         // optional address
@@ -176,26 +181,19 @@ struct msghdr
     socklen_t     msg_controllen;   // ancillary data buffer len
     int           msg_flags;        // flags on received message
 };
-struct mmsghdr {
-    struct msghdr msg_hdr;  /* Message header */
-    unsigned int  msg_len;  /* Number of received bytes for header */
-};
 struct iovec
 {
     void *iov_base;     /* Pointer to data.  */
     size_t iov_len;     /* Length of data.  */
 };
-int recvmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
-                    unsigned int flags, struct timespec *timeout)
-{
-    return 0;
-}
-struct timespec
-{
-        unsigned tv_sec;
-        unsigned tv_nsec;
+#endif
+#ifndef MSG_WAITFORONE
+struct mmsghdr {
+    struct msghdr msg_hdr;  /* Message header */
+    unsigned int  msg_len;  /* Number of received bytes for header */
 };
 #endif
+
 
 /******************************************************************************
  ******************************************************************************/
