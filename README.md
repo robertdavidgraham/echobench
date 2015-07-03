@@ -17,6 +17,75 @@ conformance with RFC 862. Because it does virtually nothing,
 it is the "ideal" service.
 
 
+-------------------
+NUMA (multi-socket)
+-------------------
+
+Today's chips have multiple CPU cores, but in addition, most servers in data
+centers support multiple chips (or "sockets") per computer, usually 2 sockets,
+sometimes 4, and rarely 8. A common configuration is two sockets, each holding
+6 core chips, for a total of 12 cores.
+
+The reason the configuration is popular is that it's "glueless" -- the glue
+known as "QPI" is built into all Intel CPUs, so manufacturers don't have to
+add any extra chips. The cost for two socket motherboard is about the same
+as the cost for a single socket motherboard.
+
+However, the "QPI" links between sockets can become a bottleneck. When packets
+arrive on one socket, but are processed on another socket, this will have
+a noticeable performance impact.
+
+The features described below can direct incoming traffic to specific sockets
+(actually, specific CPUs within a socket). You can direct all traffic to
+a single socket, or you can split traffic between sockets. If using multiple
+sockets, however, you need NUMA-aware software, which is beyond the scope
+of this document.
+
+
+------------------------------------------------
+Interupt mitigation/coalescing/throttling (NAPI)
+------------------------------------------------
+
+There is a tradeoff between *latency* and *throughput*. 
+
+To reduce latency, packets will generate an *interrupt* when they arrive.
+This causes the packet to be processed immediately, with no wait, potentially
+getting below 1-microsecond of response time.
+
+Interrupts are expensive, though. Under high traffic loads (high throutput), 
+interrupts will overload
+the system. Therefore, the system starts processing multiple packets per
+interrupt, increasing latency (because, in effect, it means most packets wait
+a little bit before being processed).
+
+Linux has a system called NAPI that automatically switches from one to the
+other. Under light loads, it generates an interrupt for each packet, but starts
+throttling the interrupts under heavy loads.
+
+The automatic throttling of NAPI is good, but has some problems. It doesn't
+start throttling until CPUs are heavily overloaded. Thus, even though it can
+receive the packets at high rate, there may not be enough CPU power left over
+to process the packet, and it may have to be dropped.
+
+You can monitor this case by looking at statistics. Adapter statistics show
+how many packets the adapter drops because they can't be received. Network
+stack statistics show how many packets are received, but then later dropped
+because they could not be processed. Ideally, you tune the system so that 
+the stack can handle all the packets received, and that any overload is dropped
+immediately at the adapter.
+
+
+On Intel adapters, you can use `ethtool` to set a fixed interrupt rate, as
+shown below:
+
+# ethtool -C eth1 rx-usecs 275
+
+A 10gbps Ethernet can receive 14,880,000 packets/second. An Intel adapter has
+4096 packet descriptors. That means the maximum amount of time the system can
+wait between interrupts, and not lose packets, is 275 microseconds.
+
+
+
 ---------------------------------
 Configure hardware receive queues
 ---------------------------------
