@@ -1,21 +1,19 @@
 echobench
 =========
 
-This is a simple server to demonstrate the FASTEST possible
-performance for a server in userspace, using such things
-as epoll, kqueue,and IOCompletionPorts. Its purpose is twofold.
-The first is as a sample server, from which build new code,
-demonstrating the "right" way to do things if scalability
-and performance are required. This includes demonstrating such
-concepts as IPv6. The second purpose is as a benchmark, to compare
-platforms, or to compare with other servers in order to see how
-far from the ideal they perform.
+This is a program for stressing getting packets through the
+operating system kernel as fast as possible, using the simplest
+possible application, an "echo" server that echoes back whatever
+is sent. It does virtually no other processing than handling packets.
 
-The only processing this server does is to echo back the
-contents of incoming data, either over TCP or UDP, in
-conformance with RFC 862. Because it does virtually nothing,
-it is the "ideal" service.
+The current code is UDP-only. It's designed for testing how fast
+an application can handle such apps as DNS, SIP, and QUIC.
 
+You can then tweek other parts of the operating system in order to
+figure out how to improve things. A standard app using just *recv()*
+can get about 500,000 packets-per-second. Using RSS and *recvmsg()* we
+can get closer to 5,000,000 packets-per-second on low-end quad-core 
+systems that will scale cleanly to 32-core systems.
 
 -------------------
 NUMA (multi-socket)
